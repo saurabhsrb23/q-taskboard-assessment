@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "@/lib/api-client";
-import type { ApiTask, ApiProjectMember, TaskStatus } from "@/types";
+import type { ApiTask, ApiProjectMember, ApiComment, TaskStatus } from "@/types";
 import { STATUS_LABELS, STATUS_ORDER } from "@/types";
 
 type Props = {
@@ -19,7 +19,12 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
   const [description, setDescription] = useState(task.description ?? "");
   const [status, setStatus] = useState<TaskStatus>(task.status);
   const [assigneeId, setAssigneeId] = useState<string>(task.assigneeId ?? "");
+  // Store as YYYY-MM-DD string for the date input; empty string = no due date
+  const [dueDate, setDueDate] = useState<string>(
+    task.dueDate ? task.dueDate.slice(0, 10) : ""
+  );
   const [error, setError] = useState<string | null>(null);
+  const [commentBody, setCommentBody] = useState("");
 
   const updateTask = useMutation({
     mutationFn: (input: Partial<ApiTask>) =>
@@ -44,6 +49,25 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
     onError: (err) => setError(err instanceof Error ? err.message : "delete failed"),
   });
 
+  const { data: commentsData } = useQuery({
+    queryKey: ["comments", task.id],
+    queryFn: () =>
+      apiFetch<{ comments: ApiComment[] }>(`/api/tasks/${task.id}/comments`),
+  });
+
+  const postComment = useMutation({
+    mutationFn: (body: string) =>
+      apiFetch<{ comment: ApiComment }>(`/api/tasks/${task.id}/comments`, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      }),
+    onSuccess: () => {
+      setCommentBody("");
+      queryClient.invalidateQueries({ queryKey: ["comments", task.id] });
+    },
+    onError: (err) => setError(err instanceof Error ? err.message : "comment failed"),
+  });
+
   function onSave() {
     setError(null);
     updateTask.mutate({
@@ -51,6 +75,8 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
       description,
       status,
       assigneeId: assigneeId || null,
+      // Convert YYYY-MM-DD → ISO datetime; empty string clears the field
+      dueDate: dueDate ? new Date(dueDate).toISOString() : null,
     });
   }
 
@@ -90,7 +116,7 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
           />
         </label>
 
-        <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-2 gap-3 mb-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <label className="block">
             <span className="text-xs text-muted">status</span>
             <select
@@ -121,6 +147,16 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
               ))}
             </select>
           </label>
+
+          <label className="block col-span-2">
+            <span className="text-xs text-muted">due date</span>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="mt-1 block w-full rounded-md bg-bg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
+            />
+          </label>
         </div>
 
         {error && (
@@ -150,6 +186,53 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
               className="text-sm px-4 py-2 rounded-md bg-accent text-white hover:bg-indigo-500 disabled:opacity-50"
             >
               {updateTask.isPending ? "saving…" : "save"}
+            </button>
+          </div>
+        </div>
+
+        {/* ── Comments ── */}
+        <div className="mt-6 border-t border-border pt-4">
+          <h3 className="text-xs font-medium text-muted mb-3">
+            comments ({commentsData?.comments.length ?? 0})
+          </h3>
+
+          {/* Comment list */}
+          <div className="space-y-3 mb-4 max-h-48 overflow-y-auto">
+            {commentsData?.comments.length === 0 && (
+              <p className="text-xs text-muted">no comments yet</p>
+            )}
+            {commentsData?.comments.map((c) => (
+              <div key={c.id} className="bg-bg border border-border rounded-md px-3 py-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-medium">{c.author.name}</span>
+                  <span className="text-xs text-muted">
+                    {new Date(c.createdAt).toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-sm whitespace-pre-wrap">{c.body}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* New comment form */}
+          <div className="flex gap-2">
+            <textarea
+              value={commentBody}
+              onChange={(e) => setCommentBody(e.target.value)}
+              placeholder="add a comment…"
+              rows={2}
+              className="flex-1 rounded-md bg-bg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none resize-none"
+            />
+            <button
+              onClick={() => {
+                if (!commentBody.trim()) return;
+                setError(null);
+                postComment.mutate(commentBody.trim());
+              }}
+              disabled={postComment.isPending || !commentBody.trim()}
+              className="self-end px-3 py-2 rounded-md bg-accent text-white text-sm hover:bg-indigo-500 disabled:opacity-50"
+            >
+              {postComment.isPending ? "…" : "post"}
             </button>
           </div>
         </div>

@@ -4,7 +4,7 @@ import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch, getToken } from "@/lib/api-client";
+import { apiFetch, getToken, getStoredUser } from "@/lib/api-client";
 import { Header } from "@/components/Header";
 import { StatusColumn } from "@/components/StatusColumn";
 import { TaskDetail } from "@/components/TaskDetail";
@@ -22,6 +22,17 @@ export default function ProjectPage({ params }: PageProps) {
   const [newTitle, setNewTitle] = useState("");
   const [newColumn, setNewColumn] = useState<TaskStatus>("todo");
   const [error, setError] = useState<string | null>(null);
+  const [exportState, setExportState] = useState<
+    | { status: "idle" }
+    | { status: "loading" }
+    | { status: "done"; exported: number; failed: number; total: number }
+    | { status: "error"; message: string }
+  >({ status: "idle" });
+
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"admin" | "member" | "viewer">("member");
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getToken()) router.replace("/login");
@@ -43,6 +54,49 @@ export default function ProjectPage({ params }: PageProps) {
       queryClient.invalidateQueries({ queryKey: ["project", id] });
     },
     onError: (err) => setError(err instanceof Error ? err.message : "create failed"),
+  });
+
+  // Determine if the current user can trigger an export (admin or member only)
+  const currentUserId = getStoredUser()?.id;
+  const myRole = data?.project?.memberships.find(
+    (m) => m.user.id === currentUserId
+  )?.role;
+  const canExport = myRole === "admin" || myRole === "member";
+
+  async function handleExport() {
+    setExportState({ status: "loading" });
+    try {
+      const result = await apiFetch<{ exported: number; failed: number; total: number }>(
+        `/api/projects/${id}/export`,
+        { method: "POST" }
+      );
+      setExportState({ status: "done", ...result });
+    } catch (err) {
+      setExportState({
+        status: "error",
+        message: err instanceof Error ? err.message : "export failed",
+      });
+    }
+  }
+
+  const inviteMember = useMutation({
+    mutationFn: (input: { email: string; role: "admin" | "member" | "viewer" }) =>
+      apiFetch(`/api/projects/${id}/members`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => {
+      setInviteEmail("");
+      setInviteRole("member");
+      setInviteError(null);
+      setInviteSuccess("member invited successfully");
+      queryClient.invalidateQueries({ queryKey: ["project", id] });
+      setTimeout(() => setInviteSuccess(null), 3000);
+    },
+    onError: (err) => {
+      setInviteError(err instanceof Error ? err.message : "invite failed");
+      setInviteSuccess(null);
+    },
   });
 
   const project = data?.project;
@@ -91,6 +145,33 @@ export default function ProjectPage({ params }: PageProps) {
                   owner: {project.owner.name} · {project.memberships.length} members
                 </p>
               </div>
+
+              {/* Export to Airtable — visible to admin and member roles only */}
+              {canExport && (
+                <div className="flex flex-col items-end gap-1">
+                  <button
+                    onClick={handleExport}
+                    disabled={exportState.status === "loading"}
+                    className="bg-surface border border-border hover:border-accent text-sm font-medium rounded-md px-4 py-2 disabled:opacity-50 transition-colors"
+                  >
+                    {exportState.status === "loading"
+                      ? "Exporting…"
+                      : "Export to Airtable"}
+                  </button>
+
+                  {exportState.status === "done" && (
+                    <p className="text-xs text-green-400">
+                      {exportState.failed === 0
+                        ? `✓ Exported ${exportState.exported}/${exportState.total} tasks`
+                        : `✓ ${exportState.exported}/${exportState.total} exported · ${exportState.failed} failed`}
+                    </p>
+                  )}
+
+                  {exportState.status === "error" && (
+                    <p className="text-xs text-red-400">✗ {exportState.message}</p>
+                  )}
+                </div>
+              )}
             </div>
 
             <section className="bg-surface border border-border rounded-lg p-4 mb-6">
@@ -163,6 +244,58 @@ export default function ProjectPage({ params }: PageProps) {
                   </li>
                 ))}
               </ul>
+
+              {/* Invite form — visible to admins only */}
+              {canExport && myRole === "admin" && (
+                <div className="mt-4 bg-surface border border-border rounded-lg p-4">
+                  <h3 className="text-sm font-medium mb-3">invite a member</h3>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!inviteEmail.trim()) return;
+                      setInviteError(null);
+                      inviteMember.mutate({ email: inviteEmail.trim(), role: inviteRole });
+                    }}
+                    className="flex gap-2"
+                  >
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="user@example.com"
+                      required
+                      className="flex-1 rounded-md bg-bg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
+                    />
+                    <select
+                      value={inviteRole}
+                      onChange={(e) =>
+                        setInviteRole(e.target.value as "admin" | "member" | "viewer")
+                      }
+                      className="rounded-md bg-bg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
+                    >
+                      <option value="member">member</option>
+                      <option value="viewer">viewer</option>
+                      <option value="admin">admin</option>
+                    </select>
+                    <button
+                      type="submit"
+                      disabled={inviteMember.isPending}
+                      className="bg-accent hover:bg-indigo-500 text-white text-sm font-medium rounded-md px-4 disabled:opacity-50"
+                    >
+                      {inviteMember.isPending ? "inviting…" : "invite"}
+                    </button>
+                  </form>
+
+                  {inviteError && (
+                    <p className="text-sm text-red-400 mt-2" role="alert">
+                      {inviteError}
+                    </p>
+                  )}
+                  {inviteSuccess && (
+                    <p className="text-sm text-green-400 mt-2">{inviteSuccess}</p>
+                  )}
+                </div>
+              )}
             </section>
           </>
         )}

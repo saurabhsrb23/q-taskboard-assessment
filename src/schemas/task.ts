@@ -8,6 +8,7 @@ export const createTaskSchema = z.object({
   description: z.string().max(5000).optional(),
   status: taskStatusSchema.optional(),
   assigneeId: z.string().nullable().optional(),
+  dueDate: z.string().datetime().nullable().optional(),
 });
 
 export const updateTaskSchema = z.object({
@@ -16,6 +17,7 @@ export const updateTaskSchema = z.object({
   status: taskStatusSchema.optional(),
   assigneeId: z.string().nullable().optional(),
   position: z.number().int().min(0).optional(),
+  dueDate: z.string().datetime().nullable().optional(),
 });
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
