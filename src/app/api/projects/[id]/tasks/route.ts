@@ -23,15 +23,20 @@ export async function GET(req: NextRequest, { params }: Params) {
   const q = req.nextUrl.searchParams.get("q");
 
   if (q) {
-    // search across title and description
-    const sql = `
+    // FIX: Use prisma.$queryRaw with tagged template literals instead of $queryRawUnsafe.
+    // $queryRawUnsafe interpolated `q` and `projectId` directly into the SQL string, which
+    // allowed SQL injection via the ?q= search parameter — any project member could craft a
+    // malicious query string to read or manipulate data beyond their scope.
+    // $queryRaw sends interpolated values as bind parameters so the database always treats
+    // them as data, never as executable SQL, regardless of their content.
+    const search = `%${q}%`;
+    const tasks = await prisma.$queryRaw`
       SELECT id, project_id, title, description, status, assignee_id, created_by_id, position, created_at, updated_at
       FROM tasks
-      WHERE project_id = '${projectId}'
-        AND (title ILIKE '%${q}%' OR description ILIKE '%${q}%')
+      WHERE project_id = ${projectId}
+        AND (title ILIKE ${search} OR description ILIKE ${search})
       ORDER BY position ASC
     `;
-    const tasks = await prisma.$queryRawUnsafe(sql);
     return NextResponse.json({ tasks });
   }
 
