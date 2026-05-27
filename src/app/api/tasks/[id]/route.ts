@@ -26,6 +26,16 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const existing = await prisma.task.findUnique({ where: { id } });
   if (!existing) return notFound("task not found");
 
+  // FIX: Verify the requesting user is a member of this task's project and
+  // has a role that allows editing tasks (admin or member).
+  // Previously this check was missing — any authenticated user could update
+  // any task in the system by guessing or enumerating task IDs.
+  const membership = await getProjectMembership(user.id, existing.projectId);
+  if (!membership) return forbidden("you are not a member of this project");
+  if (!canEditTasks(membership.role)) {
+    return forbidden("viewers cannot edit tasks");
+  }
+
   const task = await prisma.task.update({
     where: { id },
     data: parsed.data,
