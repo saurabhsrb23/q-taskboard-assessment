@@ -29,6 +29,11 @@ export default function ProjectPage({ params }: PageProps) {
     | { status: "error"; message: string }
   >({ status: "idle" });
 
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"admin" | "member" | "viewer">("member");
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+
   useEffect(() => {
     if (!getToken()) router.replace("/login");
   }, [router]);
@@ -73,6 +78,26 @@ export default function ProjectPage({ params }: PageProps) {
       });
     }
   }
+
+  const inviteMember = useMutation({
+    mutationFn: (input: { email: string; role: "admin" | "member" | "viewer" }) =>
+      apiFetch(`/api/projects/${id}/members`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => {
+      setInviteEmail("");
+      setInviteRole("member");
+      setInviteError(null);
+      setInviteSuccess("member invited successfully");
+      queryClient.invalidateQueries({ queryKey: ["project", id] });
+      setTimeout(() => setInviteSuccess(null), 3000);
+    },
+    onError: (err) => {
+      setInviteError(err instanceof Error ? err.message : "invite failed");
+      setInviteSuccess(null);
+    },
+  });
 
   const project = data?.project;
   const tasksByStatus: Record<TaskStatus, ApiTask[]> = {
@@ -219,6 +244,58 @@ export default function ProjectPage({ params }: PageProps) {
                   </li>
                 ))}
               </ul>
+
+              {/* Invite form — visible to admins only */}
+              {canExport && myRole === "admin" && (
+                <div className="mt-4 bg-surface border border-border rounded-lg p-4">
+                  <h3 className="text-sm font-medium mb-3">invite a member</h3>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!inviteEmail.trim()) return;
+                      setInviteError(null);
+                      inviteMember.mutate({ email: inviteEmail.trim(), role: inviteRole });
+                    }}
+                    className="flex gap-2"
+                  >
+                    <input
+                      type="email"
+                      value={inviteEmail}
+                      onChange={(e) => setInviteEmail(e.target.value)}
+                      placeholder="user@example.com"
+                      required
+                      className="flex-1 rounded-md bg-bg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
+                    />
+                    <select
+                      value={inviteRole}
+                      onChange={(e) =>
+                        setInviteRole(e.target.value as "admin" | "member" | "viewer")
+                      }
+                      className="rounded-md bg-bg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
+                    >
+                      <option value="member">member</option>
+                      <option value="viewer">viewer</option>
+                      <option value="admin">admin</option>
+                    </select>
+                    <button
+                      type="submit"
+                      disabled={inviteMember.isPending}
+                      className="bg-accent hover:bg-indigo-500 text-white text-sm font-medium rounded-md px-4 disabled:opacity-50"
+                    >
+                      {inviteMember.isPending ? "inviting…" : "invite"}
+                    </button>
+                  </form>
+
+                  {inviteError && (
+                    <p className="text-sm text-red-400 mt-2" role="alert">
+                      {inviteError}
+                    </p>
+                  )}
+                  {inviteSuccess && (
+                    <p className="text-sm text-green-400 mt-2">{inviteSuccess}</p>
+                  )}
+                </div>
+              )}
             </section>
           </>
         )}
