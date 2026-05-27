@@ -19,6 +19,10 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
   const [description, setDescription] = useState(task.description ?? "");
   const [status, setStatus] = useState<TaskStatus>(task.status);
   const [assigneeId, setAssigneeId] = useState<string>(task.assigneeId ?? "");
+  // Store as YYYY-MM-DD string for the date input; empty string = no due date
+  const [dueDate, setDueDate] = useState<string>(
+    task.dueDate ? task.dueDate.slice(0, 10) : ""
+  );
   const [error, setError] = useState<string | null>(null);
   const [commentBody, setCommentBody] = useState("");
 
@@ -71,6 +75,8 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
       description,
       status,
       assigneeId: assigneeId || null,
+      // Convert YYYY-MM-DD → ISO datetime; empty string clears the field
+      dueDate: dueDate ? new Date(dueDate).toISOString() : null,
     });
   }
 
@@ -110,7 +116,7 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
           />
         </label>
 
-        <div className="grid grid-cols-2 gap-3 mb-4">
+        <div className="grid grid-cols-2 gap-3 mb-4" style={{ gridTemplateColumns: "1fr 1fr" }}>
           <label className="block">
             <span className="text-xs text-muted">status</span>
             <select
@@ -140,6 +146,16 @@ export function TaskDetail({ task, projectId, members, onClose }: Props) {
                 </option>
               ))}
             </select>
+          </label>
+
+          <label className="block col-span-2">
+            <span className="text-xs text-muted">due date</span>
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="mt-1 block w-full rounded-md bg-bg border border-border px-3 py-2 text-sm focus:border-accent focus:outline-none"
+            />
           </label>
         </div>
 

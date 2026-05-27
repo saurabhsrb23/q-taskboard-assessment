@@ -36,9 +36,14 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return forbidden("viewers cannot edit tasks");
   }
 
+  const { dueDate, ...rest } = parsed.data;
   const task = await prisma.task.update({
     where: { id },
-    data: parsed.data,
+    data: {
+      ...rest,
+      // Convert ISO string → Date for Prisma; null explicitly clears the field
+      ...(dueDate !== undefined && { dueDate: dueDate ? new Date(dueDate) : null }),
+    },
     include: {
       assignee: { select: { id: true, name: true, email: true } },
     },

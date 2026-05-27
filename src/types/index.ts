@@ -16,6 +16,7 @@ export type ApiTask = {
   assigneeId: string | null;
   createdById: string;
   position: number;
+  dueDate: string | null;
   createdAt: string;
   updatedAt: string;
   assignee?: ApiUser | null;
